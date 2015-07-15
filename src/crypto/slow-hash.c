@@ -79,8 +79,8 @@ union cn_slow_hash_state {
 };
 #pragma pack(pop)
 
-void cn_slow_hash(const void *data, size_t length, char *hash) {
-  uint8_t long_state[MEMORY];
+void cn_slow_hash(const void *data, size_t length, char *hash, int light) {
+  uint8_t long_state[MEMORY / (light ? 2 : 1)];
   union cn_slow_hash_state state;
   uint8_t text[INIT_SIZE_BYTE];
   uint8_t a[AES_BLOCK_SIZE];
@@ -90,6 +90,8 @@ void cn_slow_hash(const void *data, size_t length, char *hash) {
   size_t i, j;
   uint8_t aes_key[AES_KEY_SIZE];
   OAES_CTX* aes_ctx;
+  const size_t memory = MEMORY / (light ? 2 : 1);
+  const size_t iter = ITER / 2 / (light ? 2 : 1);
 
   hash_process(&state.hs, data, length);
   memcpy(text, state.init, INIT_SIZE_BYTE);
@@ -97,7 +99,7 @@ void cn_slow_hash(const void *data, size_t length, char *hash) {
   aes_ctx = oaes_alloc();
   
   oaes_key_import_data(aes_ctx, aes_key, AES_KEY_SIZE);
-  for (i = 0; i < MEMORY / INIT_SIZE_BYTE; i++) {
+  for (i = 0; i < memory / INIT_SIZE_BYTE; i++) {
     for (j = 0; j < INIT_SIZE_BLK; j++) {    
       oaes_pseudo_encrypt_ecb(aes_ctx, &text[AES_BLOCK_SIZE * j]);
     }
@@ -109,35 +111,35 @@ void cn_slow_hash(const void *data, size_t length, char *hash) {
     b[i] = state.k[16 + i] ^ state.k[48 + i];
   }
 
-  for (i = 0; i < ITER / 2; i++) {
+  for (i = 0; i < iter; i++) {
     /* Dependency chain: address -> read value ------+
      * written value <-+ hard function (AES or MUL) <+
      * next address  <-+
      */
     /* Iteration 1 */
-    j = e2i(a, MEMORY / AES_BLOCK_SIZE);
+    j = e2i(a, memory / AES_BLOCK_SIZE);
     copy_block(c, &long_state[j * AES_BLOCK_SIZE]);
     oaes_encryption_round(a, c);
     xor_blocks(b, c);
     swap_blocks(b, c);
     copy_block(&long_state[j * AES_BLOCK_SIZE], c);
-    assert(j == e2i(a, MEMORY / AES_BLOCK_SIZE));
+    assert(j == e2i(a, memory / AES_BLOCK_SIZE));
     swap_blocks(a, b);
     /* Iteration 2 */
-    j = e2i(a, MEMORY / AES_BLOCK_SIZE);
+    j = e2i(a, memory / AES_BLOCK_SIZE);
     copy_block(c, &long_state[j * AES_BLOCK_SIZE]);
     mul(a, c, d);
     sum_half_blocks(b, d);
     swap_blocks(b, c);
     xor_blocks(b, c);
     copy_block(&long_state[j * AES_BLOCK_SIZE], c);
-    assert(j == e2i(a, MEMORY / AES_BLOCK_SIZE));
+    assert(j == e2i(a, memory / AES_BLOCK_SIZE));
     swap_blocks(a, b);
   }
 
   memcpy(text, state.init, INIT_SIZE_BYTE);
   oaes_key_import_data(aes_ctx, &state.hs.b[32], AES_KEY_SIZE);
-  for (i = 0; i < MEMORY / INIT_SIZE_BYTE; i++) {
+  for (i = 0; i < memorY / INIT_SIZE_BYTE; i++) {
     for (j = 0; j < INIT_SIZE_BLK; j++) {
       xor_blocks(&text[j * AES_BLOCK_SIZE], &long_state[i * INIT_SIZE_BYTE + j * AES_BLOCK_SIZE]);
       oaes_pseudo_encrypt_ecb(aes_ctx, &text[j * AES_BLOCK_SIZE]);
